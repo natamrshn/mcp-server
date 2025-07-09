@@ -1,9 +1,7 @@
-// index.js
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-
 
 const app = express();
 app.use(cors());
@@ -17,93 +15,99 @@ const HEADERS = {
   'Authorization': `Bearer ${process.env.PARTNER_TOKEN}, User ${process.env.USER_TOKEN}`
 };
 
-// --- /capabilities ---
-app.get('/capabilities', (req, res) => {
-  res.json([
-    {
-      name: "get_staff_list",
-      description: "Get a list of staff members available in the company",
-      parameters: {
-        type: "object",
-        properties: {}
-      }
-    },
-    {
-      name: "get_available_slots",
-      description: "Get available time slots for a specific staff member on a given date",
-      parameters: {
-        type: "object",
-        properties: {
-          staff_id: { type: "number" },
-          date: { type: "string", format: "date" }
-        },
-        required: ["staff_id", "date"]
-      }
+// --- MCP методи ---
+const capabilities = [
+  {
+    name: "get_staff_list",
+    description: "Get a list of staff members available in the company",
+    parameters: {
+      type: "object",
+      properties: {}
     }
-  ]);
-});
-
-// --- /invoke ---
-app.post('/invoke', async (req, res) => {
-  const { name, parameters } = req.body;
-  const company_id = process.env.COMPANY_ID;
-
-  // ---- get_staff_list ----
-  if (name === "get_staff_list") {
-    const url = `${API_BASE}/company/${company_id}/staff`;
-
-    try {
-      const response = await fetch(url, { method: 'GET', headers: HEADERS });
-      const json = await response.json();
-      if (!json.success) {
-        return res.status(400).json({ error: 'Altegio error', details: json.meta?.message });
-      }
-
-      const staffList = json.data?.map(emp => ({
-        id: emp.id,
-        name: emp.name,
-        specialization: emp.specialization
-      })) || [];
-
-      return res.json({ staff: staffList });
-    } catch (err) {
-      console.error('❌ Error:', err);
-      return res.status(500).json({ error: 'Failed to fetch staff list from Altegio' });
+  },
+  {
+    name: "get_available_slots",
+    description: "Get available time slots for a specific staff member on a given date",
+    parameters: {
+      type: "object",
+      properties: {
+        staff_id: { type: "number" },
+        date: { type: "string", format: "date" }
+      },
+      required: ["staff_id", "date"]
     }
   }
+];
 
-  // ---- get_available_slots ----
-if (name === "get_available_slots") {
-  const { staff_id, date } = parameters;
-  const url = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
+// --- Обробка JSON-RPC ---
+app.post('/', async (req, res) => {
+  const { jsonrpc, method, id, params } = req.body;
 
-  try {
-    const response = await fetch(url, { method: 'GET', headers: HEADERS });
-    const json = await response.json();
+  if (jsonrpc !== '2.0') {
+    return res.status(400).json({ jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid JSON-RPC version' } });
+  }
 
-    console.log('🟡 Altegio response:', JSON.stringify(json, null, 2));
+  // 🧠 mcp.tools/list
+  if (method === 'mcp.tools/list') {
+    return res.json({ jsonrpc: '2.0', id, result: capabilities });
+  }
 
-    if (!json.success) {
-      return res.status(400).json({ error: 'Altegio error', details: json.meta?.message });
+  // 🧠 mcp.tools/call
+  if (method === 'mcp.tools/call') {
+    const { name, parameters } = params;
+    const company_id = process.env.COMPANY_ID;
+
+    // get_staff_list
+    if (name === 'get_staff_list') {
+      const url = `${API_BASE}/company/${company_id}/staff`;
+      try {
+        const response = await fetch(url, { method: 'GET', headers: HEADERS });
+        const json = await response.json();
+        if (!json.success) {
+          return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: json.meta?.message || 'Altegio error' } });
+        }
+        const staff = json.data?.map(emp => ({
+          id: emp.id,
+          name: emp.name,
+          specialization: emp.specialization
+        })) || [];
+
+        return res.json({ jsonrpc: '2.0', id, result: { staff } });
+      } catch (err) {
+        console.error('❌ Altegio error:', err);
+        return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: 'Failed to fetch staff' } });
+      }
     }
 
-    // Витягуємо інтервали з .slots
-    const slots = json.data?.[0]?.slots?.map(slot => `${slot.from}–${slot.to}`) || [];
+    // get_available_slots
+    if (name === 'get_available_slots') {
+      const { staff_id, date } = parameters;
+      const url = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
+      try {
+        const response = await fetch(url, { method: 'GET', headers: HEADERS });
+        const json = await response.json();
 
-    return res.json({ staff_id, date, slots });
-  } catch (err) {
-    console.error('❌ Error:', err);
-    return res.status(500).json({ error: 'Failed to fetch schedule from Altegio' });
+        if (!json.success) {
+          return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: json.meta?.message || 'Altegio error' } });
+        }
+
+        const slots = json.data?.[0]?.slots?.map(slot => `${slot.from}–${slot.to}`) || [];
+
+        return res.json({ jsonrpc: '2.0', id, result: { staff_id, date, slots } });
+      } catch (err) {
+        console.error('❌ Schedule error:', err);
+        return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: 'Failed to fetch schedule' } });
+      }
+    }
+
+    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Unknown tool name' } });
   }
-}
 
-
-
-  // ---- unknown action ----
-  res.status(400).json({ error: "Unknown action" });
+  // Невідомий метод
+  return res.status(400).json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
 });
 
-// --- start server ---
+// --- Старт сервера ---
 app.listen(PORT, () => {
-  console.log(`MCP server is running on http://localhost:${PORT}`);
+  console.log(`✅ MCP server is running on http://localhost:${PORT}`);
 });

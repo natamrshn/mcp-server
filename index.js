@@ -17,8 +17,12 @@ const HEADERS = {
 
 // MCP Server capabilities
 const SERVER_CAPABILITIES = {
-  tools: {}
+  tools: {
+    get_staff_list: {},
+    get_available_slots: {}
+  }
 };
+
 
 // Available tools
 const AVAILABLE_TOOLS = [

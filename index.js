@@ -15,99 +15,188 @@ const HEADERS = {
   'Authorization': `Bearer ${process.env.PARTNER_TOKEN}, User ${process.env.USER_TOKEN}`
 };
 
-// --- MCP методи ---
-const capabilities = [
+// MCP Server capabilities
+const SERVER_CAPABILITIES = {
+  tools: {}
+};
+
+// Available tools
+const AVAILABLE_TOOLS = [
   {
     name: "get_staff_list",
     description: "Get a list of staff members available in the company",
-    parameters: {
+    inputSchema: {
       type: "object",
-      properties: {}
+      properties: {},
+      required: []
     }
   },
   {
     name: "get_available_slots",
     description: "Get available time slots for a specific staff member on a given date",
-    parameters: {
+    inputSchema: {
       type: "object",
       properties: {
-        staff_id: { type: "number" },
-        date: { type: "string", format: "date" }
+        staff_id: { 
+          type: "number",
+          description: "ID of the staff member"
+        },
+        date: { 
+          type: "string", 
+          format: "date",
+          description: "Date in YYYY-MM-DD format"
+        }
       },
       required: ["staff_id", "date"]
     }
   }
 ];
 
-// --- Обробка JSON-RPC ---
+// Error helper
+function createError(code, message, data = null) {
+  const error = { code, message };
+  if (data) error.data = data;
+  return error;
+}
+
+// JSON-RPC response helper
+function createResponse(id, result = null, error = null) {
+  const response = { jsonrpc: "2.0", id };
+  if (error) {
+    response.error = error;
+  } else {
+    response.result = result;
+  }
+  return response;
+}
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Main MCP endpoint
 app.post('/', async (req, res) => {
-  const { jsonrpc, method, id, params } = req.body;
+  try {
+    const { jsonrpc, method, params, id } = req.body;
 
-  if (jsonrpc !== '2.0') {
-    return res.status(400).json({ jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid JSON-RPC version' } });
-  }
-
-  // 🧠 mcp.tools/list
-  if (method === 'mcp.tools/list') {
-    return res.json({ jsonrpc: '2.0', id, result: capabilities });
-  }
-
-  // 🧠 mcp.tools/call
-  if (method === 'mcp.tools/call') {
-    const { name, parameters } = params;
-    const company_id = process.env.COMPANY_ID;
-
-    // get_staff_list
-    if (name === 'get_staff_list') {
-      const url = `${API_BASE}/company/${company_id}/staff`;
-      try {
-        const response = await fetch(url, { method: 'GET', headers: HEADERS });
-        const json = await response.json();
-        if (!json.success) {
-          return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: json.meta?.message || 'Altegio error' } });
-        }
-        const staff = json.data?.map(emp => ({
-          id: emp.id,
-          name: emp.name,
-          specialization: emp.specialization
-        })) || [];
-
-        return res.json({ jsonrpc: '2.0', id, result: { staff } });
-      } catch (err) {
-        console.error('❌ Altegio error:', err);
-        return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: 'Failed to fetch staff' } });
-      }
+    // Validate JSON-RPC version
+    if (jsonrpc !== '2.0') {
+      return res.status(400).json(createResponse(id, null, createError(-32600, 'Invalid JSON-RPC version')));
     }
 
-    // get_available_slots
-    if (name === 'get_available_slots') {
-      const { staff_id, date } = parameters;
-      const url = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
-      try {
-        const response = await fetch(url, { method: 'GET', headers: HEADERS });
-        const json = await response.json();
-
-        if (!json.success) {
-          return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: json.meta?.message || 'Altegio error' } });
+    // Handle initialization
+    if (method === 'initialize') {
+      const result = {
+        protocolVersion: "2024-11-05",
+        capabilities: SERVER_CAPABILITIES,
+        serverInfo: {
+          name: "altegio-mcp-server",
+          version: "1.0.0"
         }
-
-        const slots = json.data?.[0]?.slots?.map(slot => `${slot.from}–${slot.to}`) || [];
-
-        return res.json({ jsonrpc: '2.0', id, result: { staff_id, date, slots } });
-      } catch (err) {
-        console.error('❌ Schedule error:', err);
-        return res.json({ jsonrpc: '2.0', id, error: { code: 500, message: 'Failed to fetch schedule' } });
-      }
+      };
+      return res.json(createResponse(id, result));
     }
 
-    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Unknown tool name' } });
-  }
+    // Handle post-initialization
+    if (method === 'initialized') {
+      return res.json(createResponse(id, {}));
+    }
 
-  // Невідомий метод
-  return res.status(400).json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } });
+    // Handle tools listing
+    if (method === 'tools/list') {
+      return res.json(createResponse(id, { tools: AVAILABLE_TOOLS }));
+    }
+
+    // Handle tool calls
+    if (method === 'tools/call') {
+      const { name, arguments: args } = params;
+      const company_id = process.env.COMPANY_ID;
+
+      if (!company_id) {
+        return res.json(createResponse(id, null, createError(500, 'COMPANY_ID not configured')));
+      }
+
+      // Handle get_staff_list
+      if (name === 'get_staff_list') {
+        const url = `${API_BASE}/company/${company_id}/staff`;
+        try {
+          const response = await fetch(url, { method: 'GET', headers: HEADERS });
+          const json = await response.json();
+          
+          if (!json.success) {
+            return res.json(createResponse(id, null, createError(500, json.meta?.message || 'Altegio API error')));
+          }
+          
+          const staff = json.data?.map(emp => ({
+            id: emp.id,
+            name: emp.name,
+            specialization: emp.specialization
+          })) || [];
+
+          return res.json(createResponse(id, {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ staff }, null, 2)
+              }
+            ]
+          }));
+        } catch (err) {
+          console.error('❌ Altegio API error:', err);
+          return res.json(createResponse(id, null, createError(500, 'Failed to fetch staff list')));
+        }
+      }
+
+      // Handle get_available_slots
+      if (name === 'get_available_slots') {
+        const { staff_id, date } = args;
+        
+        if (!staff_id || !date) {
+          return res.json(createResponse(id, null, createError(400, 'staff_id and date are required')));
+        }
+
+        const url = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
+        try {
+          const response = await fetch(url, { method: 'GET', headers: HEADERS });
+          const json = await response.json();
+
+          if (!json.success) {
+            return res.json(createResponse(id, null, createError(500, json.meta?.message || 'Altegio API error')));
+          }
+
+          const slots = json.data?.[0]?.slots?.map(slot => `${slot.from}–${slot.to}`) || [];
+
+          return res.json(createResponse(id, {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ staff_id, date, slots }, null, 2)
+              }
+            ]
+          }));
+        } catch (err) {
+          console.error('❌ Schedule API error:', err);
+          return res.json(createResponse(id, null, createError(500, 'Failed to fetch available slots')));
+        }
+      }
+
+      return res.json(createResponse(id, null, createError(-32601, `Unknown tool: ${name}`)));
+    }
+
+    // Handle unknown methods
+    return res.json(createResponse(id, null, createError(-32601, `Method not found: ${method}`)));
+
+  } catch (error) {
+    console.error('❌ Server error:', error);
+    return res.status(500).json(createResponse(null, null, createError(-32603, 'Internal server error')));
+  }
 });
 
-// --- Старт сервера ---
+// Start server
 app.listen(PORT, () => {
-  console.log(`✅ MCP server is running on http://localhost:${PORT}`);
+  console.log(`✅ MCP server running on port ${PORT}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
 });
+
+export default app;

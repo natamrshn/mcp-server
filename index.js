@@ -9,7 +9,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const API_BASE = 'https://api.alteg.io/api/v1';
 const HEADERS = {
   'Accept': 'application/vnd.api.v2+json',
@@ -55,7 +55,6 @@ app.post('/invoke', async (req, res) => {
     try {
       const response = await fetch(url, { method: 'GET', headers: HEADERS });
       const json = await response.json();
-console.log("Altegio response:", json);
       if (!json.success) {
         return res.status(400).json({ error: 'Altegio error', details: json.meta?.message });
       }
@@ -74,27 +73,31 @@ console.log("Altegio response:", json);
   }
 
   // ---- get_available_slots ----
-  if (name === "get_available_slots") {
-    const { staff_id, date } = parameters;
-    const url = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
+if (name === "get_available_slots") {
+  const { staff_id, date } = parameters;
+  const url = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
 
-    try {
-      const response = await fetch(url, { method: 'GET', headers: HEADERS });
-      const json = await response.json();
+  try {
+    const response = await fetch(url, { method: 'GET', headers: HEADERS });
+    const json = await response.json();
 
-      if (!json.success) {
-        return res.status(400).json({ error: 'Altegio error', details: json.meta?.message });
-      }
+    console.log('🟡 Altegio response:', JSON.stringify(json, null, 2));
 
-      const slots = json.data?.[0]?.timetable?.filter(item => item.is_recordable === "1")
-        .map(item => item.time) || [];
-
-      return res.json({ staff_id, date, slots });
-    } catch (err) {
-      console.error('❌ Error:', err);
-      return res.status(500).json({ error: 'Failed to fetch schedule from Altegio' });
+    if (!json.success) {
+      return res.status(400).json({ error: 'Altegio error', details: json.meta?.message });
     }
+
+    // Витягуємо інтервали з .slots
+    const slots = json.data?.[0]?.slots?.map(slot => `${slot.from}–${slot.to}`) || [];
+
+    return res.json({ staff_id, date, slots });
+  } catch (err) {
+    console.error('❌ Error:', err);
+    return res.status(500).json({ error: 'Failed to fetch schedule from Altegio' });
   }
+}
+
+
 
   // ---- unknown action ----
   res.status(400).json({ error: "Unknown action" });

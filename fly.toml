@@ -1,0 +1,23 @@
+app = "mcp-server-for-ai"
+
+[build]
+  builder = "heroku/builder:24"
+
+[[services]]
+  internal_port = 3000
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    interval = "10s"
+    timeout = "2s"
+    method = "get"
+    path = "/health"
+    protocol = "http"

@@ -208,7 +208,15 @@ app.post('/', async (req, res) => {
       }
 
       if (name === 'book_record') {
-        const { fullname, phone, email, staff_id, datetime } = args;
+        const {
+          fullname, phone, email, staff_id, datetime,
+          seance_length = 3600, // 1 година
+          save_if_busy = false,
+          comment = '',
+          attendance = 0,
+          custom_fields = {},
+          record_labels = []
+        } = args;
 
         const staffUrl = `${API_BASE}/company/${company_id}/staff`;
         const staffResponse = await fetch(staffUrl, { method: 'GET', headers: HEADERS });
@@ -220,17 +228,29 @@ app.post('/', async (req, res) => {
           return res.json(createResponse(id, null, createError(400, 'No service_id found for staff member')));
         }
 
-        const bookUrl = `${API_BASE}/book_record/${company_id}`;
+        const bookUrl = `${API_BASE}/records/${company_id}`;
         const payload = {
-          phone,
-          fullname,
-          email,
-          appointments: [{
-            id: 1,
-            staff_id,
-            datetime,
-            services: [service_id]
-          }]
+          staff_id,
+          datetime,
+          seance_length,
+          save_if_busy,
+          attendance,
+          api_id: `mcp-${Date.now()}`,
+          custom_color: "#7B68EE", // можеш змінити або прибрати
+          client: {
+            name: fullname,
+            phone,
+            email
+          },
+          services: [{
+            id: service_id,
+            cost: 0,
+            first_cost: 0,
+            discount: 0
+          }],
+          custom_fields,
+          record_labels,
+          comment
         };
 
         try {
@@ -239,6 +259,7 @@ app.post('/', async (req, res) => {
             headers: HEADERS,
             body: JSON.stringify(payload)
           });
+
           const json = await response.json();
 
           if (!json.success) {

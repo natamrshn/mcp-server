@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
+import { DateTime } from 'luxon';
 
 const app = express();
 app.use(cors());
@@ -145,6 +146,7 @@ app.post('/', async (req, res) => {
         }
       }
 
+
       if (name === 'get_available_slots') {
         const { staff_id, date } = args;
         const scheduleUrl = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
@@ -153,6 +155,7 @@ app.post('/', async (req, res) => {
         try {
           const scheduleRes = await fetch(scheduleUrl, { method: 'GET', headers: HEADERS });
           const scheduleJson = await scheduleRes.json();
+
           if (!scheduleJson.success) {
             return res.json(createResponse(id, null, createError(500, scheduleJson.meta?.message || 'Schedule error')));
           }
@@ -166,10 +169,11 @@ app.post('/', async (req, res) => {
 
           const workFrom = slotsData.from;
           const workTo = slotsData.to;
-          const seanceLength = 3600;
+          const seanceLength = 3600; // 1 година
 
           const recordsRes = await fetch(recordsUrl, { method: 'GET', headers: HEADERS });
           const recordsJson = await recordsRes.json();
+
           if (!recordsJson.success) {
             return res.json(createResponse(id, null, createError(500, recordsJson.meta?.message || 'Records error')));
           }
@@ -177,29 +181,35 @@ app.post('/', async (req, res) => {
           const busyRecords = recordsJson.data || [];
 
           const freeSlots = [];
-          const toDateTime = (date, time) => new Date(`${date}T${time}:00+03:00`);
+
+          const toDateTime = (date, time) => {
+            return DateTime.fromISO(`${date}T${time}`, { zone: 'Europe/Kyiv' });
+          };
+
           let slotStart = toDateTime(date, workFrom);
           const workEnd = toDateTime(date, workTo);
 
-          while (slotStart.getTime() + seanceLength * 1000 <= workEnd.getTime()) {
-            const slotEnd = new Date(slotStart.getTime() + seanceLength * 1000);
+          while (slotStart.plus({ seconds: seanceLength }) <= workEnd) {
+            const slotEnd = slotStart.plus({ seconds: seanceLength });
+
             const overlaps = busyRecords.some(rec => {
-              const recStart = new Date(rec.datetime);
-              const recEnd = new Date(recStart.getTime() + rec.seance_length * 1000);
+              const recStart = DateTime.fromISO(rec.datetime, { zone: 'Europe/Kyiv' });
+              const recEnd = recStart.plus({ seconds: rec.seance_length });
               return !(slotEnd <= recStart || slotStart >= recEnd);
             });
 
             if (!overlaps) {
-              const hour = slotStart.getHours().toString().padStart(2, '0');
-              const minutes = slotStart.getMinutes().toString().padStart(2, '0');
-              freeSlots.push(`${hour}:${minutes}`);
+              freeSlots.push(slotStart.toFormat('HH:mm'));
             }
 
-            slotStart = new Date(slotStart.getTime() + seanceLength * 1000);
+            slotStart = slotStart.plus({ seconds: seanceLength });
           }
 
           return res.json(createResponse(id, {
-            content: [{ type: "text", text: JSON.stringify({ staff_id, date, free_slots: freeSlots }, null, 2) }]
+            content: [{
+              type: "text",
+              text: JSON.stringify({ staff_id, date, free_slots: freeSlots }, null, 2)
+            }]
           }));
         } catch (err) {
           console.error('❌ Slot building error:', err);

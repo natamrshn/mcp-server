@@ -20,7 +20,8 @@ const SERVER_CAPABILITIES = {
   tools: {
     get_staff_list: {},
     get_available_slots: {},
-    book_record: {}
+    book_record: {},
+    get_service_list: {},
   }
 };
 
@@ -60,7 +61,16 @@ const AVAILABLE_TOOLS = [
       },
       required: ["fullname", "phone", "email", "staff_id", "datetime"]
     }
-  }
+  },
+   {
+    name: "get_service_list",
+    description: "Get a list of available services in the company",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: []
+    }
+  },
 ];
 
 function createError(code, message, data = null) {
@@ -215,6 +225,33 @@ app.post('/', async (req, res) => {
           console.error('❌ Slot building error:', err);
           return res.json(createResponse(id, null, createError(500, 'Failed to calculate available slots')));
         }
+      }
+
+      if (name === 'get_service_list') {
+  const url = `${API_BASE}/book_services/${company_id}`;
+  try {
+    const response = await fetch(url, { method: 'GET', headers: HEADERS });
+    const json = await response.json();
+
+    if (!json.success) {
+      return res.json(createResponse(id, null, createError(500, json.meta?.message || 'Altegio API error')));
+    }
+
+    // Повертаємо тільки масив services (title + id)
+    const services = json.data?.services?.map(svc => ({
+      id: svc.id,
+      title: svc.title,
+      duration: svc.seance_length || null,
+      cost: svc.cost || null
+    })) || [];
+
+    return res.json(createResponse(id, {
+      content: [{ type: "text", text: JSON.stringify({ services }, null, 2) }]
+    }));
+  } catch (err) {
+    console.error('❌ Altegio API error (services):', err);
+    return res.json(createResponse(id, null, createError(500, 'Failed to fetch service list')));
+  }
       }
 
       if (name === 'book_record') {

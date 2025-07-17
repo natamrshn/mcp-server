@@ -1,65 +1,45 @@
-# 📘 Як юзати MCP API з фронта
+# Опис основних функцій MCP API
+Для запуску 
+npm i
+node index.js
 
-## 1. Базовий запит
 
-Всі запити — POST на `/` з body у форматі JSON-RPC 2.0.
+## Опис основних функцій MCP API
+1. get_staff_list
+Повертає список усіх майстрів компанії.
 
-```js
-const res = await fetch('https://your-server.fly.dev/', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    jsonrpc: "2.0",
-    method: "tools/call",
-    params: {
-      name: "get_staff_list", // або інша дія
-      arguments: {}
-    },
-    id: 1
-  })
-});
-const data = await res.json();
-2. Приклади
-🔹 Список майстрів
+2. get_available_slots
+Повертає доступні часові слоти обраного майстра на вказану дату.
+Аргументи:
 
-// name: "get_staff_list", arguments: {}
-🔹 Слоти майстра на дату
+staff_id — ID майстра
 
-// name: "get_available_slots", arguments: { staff_id: 123, date: "2025-07-18" }
-🔹 Список послуг
+date — дата у форматі YYYY-MM-DD
 
-// name: "get_service_list", arguments: {}
-🔹 Запис на послугу
+3. get_service_list
+Повертає список усіх послуг (з назвами, ціною та тривалістю).
 
-// name: "book_record", arguments: { fullname, phone, email, staff_id, datetime }
-3. Витяг даних
+4. book_record
+Створює запис клієнта до майстра на певну послугу й час.
+Аргументи:
 
-// Всі відповіді лежать тут:
-const content = data.result?.content?.[0]?.text;
-const parsed = content && JSON.parse(content);
+fullname — імʼя клієнта
 
-4. Помилки
+phone — телефон
 
-if (data.error) alert(data.error.message);
+email — email
 
-5. Швидка функція для викликів
+staff_id — ID майстра
 
-async function mcpCall(name, args = {}) {
-  const res = await fetch('https://your-server.fly.dev/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "tools/call",
-      params: { name, arguments: args },
-      id: Date.now()
-    })
-  });
-  return await res.json();
-}
+datetime — дата та час запису (ISO)
 
-Використання:
-const res = await mcpCall("get_staff_list");
-const staff = JSON.parse(res.result.content[0].text).staff;
-Все! Просто підставляй name та arguments — і працюєш з MCP API як з функціями.
+5. get_nearest_sessions
+Повертає найближчі доступні сеанси для майстра.
+Аргументи:
+
+staff_id — ID майстра
+
+service_ids — масив ID послуг (необовʼязково)
+
+datetime — початкова дата для пошуку (необовʼязково)
 

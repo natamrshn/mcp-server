@@ -226,3 +226,43 @@ export async function bookRecordTool(res, id, args) {
     return res.json(createResponse(id, null, createError(500, 'Failed to create booking')));
   }
 }
+
+// Tool: get_nearest_sessions
+export async function getNearestSessionsTool(res, id, args) {
+  const company_id = process.env.COMPANY_ID;
+  const { staff_id, service_ids = [], datetime } = args;
+  if (!company_id) {
+    return res.json(createResponse(id, null, createError(500, 'COMPANY_ID not configured')));
+  }
+  if (!staff_id) {
+    return res.json(createResponse(id, null, createError(400, 'staff_id is required')));
+  }
+
+  // Формируем url с query-параметрами
+  let url = `${API_BASE}/book_staff_seances/${company_id}/${staff_id}/`;
+  const params = new URLSearchParams();
+  if (Array.isArray(service_ids) && service_ids.length) {
+    service_ids.forEach(id => params.append('service_ids[]', id));
+  }
+  if (datetime) {
+    params.set('datetime', datetime);
+  }
+  if ([...params].length) {
+    url += '?' + params.toString();
+  }
+
+  try {
+    const response = await fetch(url, { method: 'GET', headers: HEADERS });
+    const json = await response.json();
+    if (!json.success) {
+      return res.json(createResponse(id, null, createError(500, json.meta?.message || 'Altegio API error')));
+    }
+
+    return res.json(createResponse(id, {
+      content: [{ type: "text", text: JSON.stringify(json.data, null, 2) }]
+    }));
+  } catch (err) {
+    console.error('❌ Altegio API error:', err);
+    return res.json(createResponse(id, null, createError(500, 'Failed to fetch nearest sessions')));
+  }
+}

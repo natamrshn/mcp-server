@@ -5,7 +5,8 @@ import {
   getStaffListTool,
   getAvailableSlotsTool,
   bookRecordTool,
-  getServiceListTool
+  getServiceListTool,
+  getNearestSessionsTool
 } from "../api/mcpMethods.js";
 import { createError, createResponse } from "../utils/jsonRpc.js";
 
@@ -33,6 +34,7 @@ export async function handleJsonRpc(req, res) {
       if (name === 'get_available_slots') return await getAvailableSlotsTool(res, id, args);
       if (name === 'book_record') return await bookRecordTool(res, id, args);
       if (name === 'get_service_list') return await getServiceListTool(res, id);
+      if (name === 'get_nearest_sessions') return await getNearestSessionsTool(res, id, args);
       return res.json(createResponse(id, null, createError(-32601, `Unknown tool: ${name}`)));
     }
 

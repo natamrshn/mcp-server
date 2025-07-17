@@ -58,4 +58,18 @@ export const AVAILABLE_TOOLS = [
       required: []
     }
   },
+  {
+  name: "get_nearest_sessions",
+  description: "Get a list of the nearest available sessions for an employee",
+  inputSchema: {
+    type: "object",
+    properties: {
+      staff_id: { type: "number" },
+      service_ids: { type: "array", items: { type: "number" } },
+      datetime: { type: "string", format: "date-time" }
+    },
+    required: ["staff_id"]
+  }
+}
+
 ];

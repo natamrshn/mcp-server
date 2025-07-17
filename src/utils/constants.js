@@ -82,6 +82,20 @@ export const AVAILABLE_TOOLS = [
     },
     required: []
   }
+  },
+  {
+  name: "get_staff_really_free_at_time",
+  description: "Знаходить співробітників, які реально вільні на вказану дату і час.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      date: { type: "string", format: "date" },
+      time: { type: "string", pattern: "^\\d{2}:\\d{2}$" },
+      service_ids: { type: "array", items: { type: "number" } }
+    },
+    required: ["date", "time"]
+  }
 }
+
 
 ];

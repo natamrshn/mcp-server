@@ -265,7 +265,6 @@ export async function bookRecordTool(res, id, args) {
   }
 }
 
-
 // Tool: get_nearest_sessions
 export async function getNearestSessionsTool(res, id, args) {
   const company_id = process.env.COMPANY_ID;
@@ -343,4 +342,72 @@ export async function getBookableStaffTool(res, id, args) {
     console.error('❌ Altegio API error:', err);
     return res.json(createResponse(id, null, createError(500, 'Failed to fetch bookable staff')));
   }
+}
+
+// Tool: get_staff_really_free_at_time
+export async function getStaffReallyFreeAtTimeTool(res, id, args) {
+  const company_id = process.env.COMPANY_ID;
+  if (!company_id) {
+    return res.json(createResponse(id, null, createError(500, 'COMPANY_ID not configured')));
+  }
+
+  const { date, time, service_ids = [] } = args;
+  if (!date || !time) {
+    return res.json(createResponse(id, null, createError(400, 'date і time обовʼязкові')));
+  }
+
+  const datetime = `${date}T${time}:00`;
+
+  let staffRes;
+  try {
+    staffRes = await fetch(`${process.env.MCP_URL || "http://localhost:3000"}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        id: Date.now(),
+        params: {
+          name: "get_bookable_staff",
+          arguments: { datetime, service_ids }
+        }
+      })
+    });
+  } catch (err) {
+    return res.json(createResponse(id, null, createError(500, 'Failed to call get_bookable_staff')));
+  }
+  const staffJson = await staffRes.json();
+  const staffArr = JSON.parse(staffJson.result.content[0].text);
+
+  const checkSlots = await Promise.all(staffArr.map(async (staff) => {
+    try {
+      const slotsRes = await fetch(`${process.env.MCP_URL || "http://localhost:3000"}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          id: Date.now() + Math.random(),
+          params: {
+            name: "get_available_slots",
+            arguments: { staff_id: staff.id, date }
+          }
+        })
+      });
+      const slotsJson = await slotsRes.json();
+      const freeSlots = JSON.parse(slotsJson.result.content[0].text).free_slots || [];
+      if (freeSlots.includes(time)) {
+        return staff.name; // повертаємо лише імʼя!
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }));
+
+  const reallyFreeNames = checkSlots.filter(Boolean);
+
+  return res.json(createResponse(id, {
+    content: [{ type: "text", text: JSON.stringify({ free_at_time: reallyFreeNames }, null, 2) }]
+  }));
 }

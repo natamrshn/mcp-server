@@ -70,6 +70,18 @@ export const AVAILABLE_TOOLS = [
     },
     required: ["staff_id"]
   }
+  },
+  {
+  name: "get_bookable_staff",
+  description: "Отримати перелік співробітників, доступних для запису на вказаний час та/або послугу.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      service_ids: { type: "array", items: { type: "number" } },
+      datetime: { type: "string", format: "date-time" }
+    },
+    required: []
+  }
 }
 
 ];

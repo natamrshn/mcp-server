@@ -305,3 +305,42 @@ export async function getNearestSessionsTool(res, id, args) {
     return res.json(createResponse(id, null, createError(500, 'Failed to fetch nearest sessions')));
   }
 }
+// Tool: get_bookable_staff
+export async function getBookableStaffTool(res, id, args) {
+  const company_id = process.env.COMPANY_ID;
+  if (!company_id) {
+    return res.json(createResponse(id, null, createError(500, 'COMPANY_ID not configured')));
+  }
+
+  const { service_ids = [], datetime } = args || {};
+
+  let url = `${API_BASE}/book_staff/${company_id}`;
+  const params = new URLSearchParams();
+
+  if (Array.isArray(service_ids) && service_ids.length > 0) {
+    service_ids.forEach(sid => params.append('service_ids[]', sid));
+  }
+  if (datetime) {
+    params.set('datetime', datetime); // Наприклад, "2025-07-18T14:00:00"
+  }
+  if ([...params].length) {
+    url += '?' + params.toString();
+  }
+
+  try {
+    const response = await fetch(url, { method: 'GET', headers: HEADERS });
+    const json = await response.json();
+
+    if (!json.success) {
+      return res.json(createResponse(id, null, createError(500, json.meta?.message || 'Altegio API error')));
+    }
+
+    // Просто повертаємо список співробітників (можеш обмежити поля)
+    return res.json(createResponse(id, {
+      content: [{ type: "text", text: JSON.stringify(json.data, null, 2) }]
+    }));
+  } catch (err) {
+    console.error('❌ Altegio API error:', err);
+    return res.json(createResponse(id, null, createError(500, 'Failed to fetch bookable staff')));
+  }
+}

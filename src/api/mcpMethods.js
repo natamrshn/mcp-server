@@ -161,8 +161,13 @@ export async function bookRecordTool(res, id, args) {
   }
 
   const {
-    fullname, phone, email, staff_id, datetime,
-    seance_length = 3600, // 1 година
+    fullname,
+    phone,
+    email,
+    staff_id,
+    datetime,
+    seance_length,      // не задаём дефолт
+    service_id: input_service_id, // <-- если передаёшь в args (опционально)
     save_if_busy = false,
     comment = '',
     attendance = 0,
@@ -170,21 +175,51 @@ export async function bookRecordTool(res, id, args) {
     record_labels = []
   } = args;
 
+  // Получаем данные сотрудника
   const staffUrl = `${API_BASE}/company/${company_id}/staff`;
   const staffResponse = await fetch(staffUrl, { method: 'GET', headers: HEADERS });
   const staffJson = await staffResponse.json();
   const staff = staffJson.data?.find(emp => emp.id === staff_id);
-  const service_id = staff?.services_links?.[0]?.service_id;
+
+  // Лог всех услуг сотрудника
+  console.log('staff.services_links:', staff?.services_links);
+
+  // Выбираем нужную услугу (если в args передан service_id — ищем по нему, иначе берём первую)
+  let service_id = null;
+  let durationFromLink = null;
+  if (staff?.services_links && staff.services_links.length > 0) {
+    if (input_service_id) {
+      // ищем услугу по переданному service_id
+      const found = staff.services_links.find(
+        link => String(link.service_id) === String(input_service_id)
+      );
+      if (found) {
+        service_id = found.service_id;
+        durationFromLink = found.length;
+      }
+    }
+    // если не нашли по input_service_id, берём первую
+    if (!service_id) {
+      service_id = staff.services_links[0].service_id;
+      durationFromLink = staff.services_links[0].length;
+    }
+  }
 
   if (!service_id) {
     return res.json(createResponse(id, null, createError(400, 'No service_id found for staff member')));
+  }
+
+  // Приоритет: явно переданный seance_length > длина из services_links > дефолт
+  let finalSeanceLength = seance_length;
+  if (finalSeanceLength === undefined || finalSeanceLength === null) {
+    finalSeanceLength = durationFromLink || 3600;
   }
 
   const bookUrl = `${API_BASE}/records/${company_id}`;
   const payload = {
     staff_id,
     datetime,
-    seance_length,
+    seance_length: finalSeanceLength,
     save_if_busy,
     attendance,
     api_id: `mcp-${Date.now()}`,
@@ -204,6 +239,9 @@ export async function bookRecordTool(res, id, args) {
     record_labels,
     comment
   };
+
+  // Для отладки выводим итоговый payload в консоль
+  console.log('BOOKING PAYLOAD:', payload);
 
   try {
     const response = await fetch(bookUrl, {
@@ -226,6 +264,7 @@ export async function bookRecordTool(res, id, args) {
     return res.json(createResponse(id, null, createError(500, 'Failed to create booking')));
   }
 }
+
 
 // Tool: get_nearest_sessions
 export async function getNearestSessionsTool(res, id, args) {

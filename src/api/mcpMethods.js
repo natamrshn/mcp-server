@@ -59,66 +59,40 @@ export async function getAvailableSlotsTool(res, id, args) {
     return res.json(createResponse(id, null, createError(500, 'COMPANY_ID not configured')));
   }
 
-  const { staff_id, date } = args;
-  const scheduleUrl = `${API_BASE}/schedule/${company_id}/${staff_id}/${date}/${date}`;
-  const recordsUrl = `${API_BASE}/records/${company_id}?staff_id=${staff_id}&start_date=${date}&end_date=${date}`;
+  const { staff_id, date, service_id } = args;
+
+  let url = `${API_BASE}/book_times/${company_id}/${staff_id}/${date}`;
+  const params = new URLSearchParams();
+  if (service_id) params.append('service_ids[]', service_id);
+  if ([...params].length) url += '?' + params.toString();
 
   try {
-    const scheduleRes = await fetch(scheduleUrl, { method: 'GET', headers: HEADERS });
-    const scheduleJson = await scheduleRes.json();
+    const apiRes = await fetch(url, { method: 'GET', headers: HEADERS });
+    const apiJson = await apiRes.json();
 
-    if (!scheduleJson.success) {
-      return res.json(createResponse(id, null, createError(500, scheduleJson.meta?.message || 'Schedule error')));
+    if (!apiJson.success) {
+      return res.json(createResponse(id, null, createError(500, apiJson.meta?.message || 'Altegio API error')));
     }
 
-    const slotsData = scheduleJson.data?.[0]?.slots?.[0];
-    if (!slotsData) {
-      return res.json(createResponse(id, {
-        content: [{ type: "text", text: `На ${date} немає робочих слотів у майстра` }]
-      }));
-    }
-
-    const workFrom = slotsData.from;
-    const workTo = slotsData.to;
-    const seanceLength = 3600; // 1 година
-
-    const recordsRes = await fetch(recordsUrl, { method: 'GET', headers: HEADERS });
-    const recordsJson = await recordsRes.json();
-
-    if (!recordsJson.success) {
-      return res.json(createResponse(id, null, createError(500, recordsJson.meta?.message || 'Records error')));
-    }
-
-    const busyRecords = recordsJson.data || [];
-    const freeSlots = [];
-    const toDateTime = (date, time) => DateTime.fromISO(`${date}T${time}`, { zone: 'Europe/Kyiv' });
-
-    let slotStart = toDateTime(date, workFrom);
-    const workEnd = toDateTime(date, workTo);
-
-    while (slotStart.plus({ seconds: seanceLength }) <= workEnd) {
-      const slotEnd = slotStart.plus({ seconds: seanceLength });
-      const overlaps = busyRecords.some(rec => {
-        const recStart = DateTime.fromISO(rec.datetime, { zone: 'Europe/Kyiv' });
-        const recEnd = recStart.plus({ seconds: rec.seance_length });
-        return !(slotEnd <= recStart || slotStart >= recEnd);
-      });
-
-      if (!overlaps) {
-        freeSlots.push(slotStart.toFormat('HH:mm'));
+    // Точно приводимо всі слоти до часу по Києву!
+    const free_slots = apiJson.data.map(x => {
+      // Якщо datetime є — парсимо й повертаємо у "HH:mm" по Києву
+      if (x.datetime) {
+        return DateTime.fromISO(x.datetime, { zone: 'Europe/Kyiv' }).toFormat('HH:mm');
       }
-      slotStart = slotStart.plus({ seconds: seanceLength });
-    }
+      // fallback
+      return x.time;
+    });
 
     return res.json(createResponse(id, {
       content: [{
         type: "text",
-        text: JSON.stringify({ staff_id, date, free_slots: freeSlots }, null, 2)
+        text: JSON.stringify(free_slots, null, 2)
       }]
     }));
   } catch (err) {
-    console.error('❌ Slot building error:', err);
-    return res.json(createResponse(id, null, createError(500, 'Failed to calculate available slots')));
+    console.error('❌ book_times error:', err);
+    return res.json(createResponse(id, null, createError(500, 'Failed to fetch available slots')));
   }
 }
 

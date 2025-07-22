@@ -74,20 +74,20 @@ export async function getAvailableSlotsTool(res, id, args) {
       return res.json(createResponse(id, null, createError(500, apiJson.meta?.message || 'Altegio API error')));
     }
 
-    // Точно приводимо всі слоти до часу по Києву!
+    // Перетворюємо всі слоти на час у Києві
     const free_slots = apiJson.data.map(x => {
-      // Якщо datetime є — парсимо й повертаємо у "HH:mm" по Києву
       if (x.datetime) {
         return DateTime.fromISO(x.datetime, { zone: 'Europe/Kyiv' }).toFormat('HH:mm');
       }
-      // fallback
       return x.time;
     });
 
+    // --- Ось тут головна зміна ---
+    // Завжди повертаємо { free_slots: [...] }
     return res.json(createResponse(id, {
       content: [{
         type: "text",
-        text: JSON.stringify(free_slots, null, 2)
+        text: JSON.stringify({ free_slots }, null, 2)
       }]
     }));
   } catch (err) {

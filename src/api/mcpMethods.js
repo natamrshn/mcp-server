@@ -128,6 +128,7 @@ export async function getServiceListTool(res, id) {
 }
 
 // Tool: book_record
+
 export async function bookRecordTool(res, id, args) {
   const company_id = process.env.COMPANY_ID;
   if (!company_id) {
@@ -140,8 +141,8 @@ export async function bookRecordTool(res, id, args) {
     email,
     staff_id,
     datetime,
-    seance_length,      // не задаём дефолт
-    service_id: input_service_id, // <-- если передаёшь в args (опционально)
+    seance_length,       // опціонально
+    service_id: input_service_id, // опціонально
     save_if_busy = false,
     comment = '',
     attendance = 0,
@@ -149,46 +150,76 @@ export async function bookRecordTool(res, id, args) {
     record_labels = []
   } = args;
 
-  // Получаем данные сотрудника
+  // 1. Отримуємо дані всіх співробітників
   const staffUrl = `${API_BASE}/company/${company_id}/staff`;
-  const staffResponse = await fetch(staffUrl, { method: 'GET', headers: HEADERS });
-  const staffJson = await staffResponse.json();
-  const staff = staffJson.data?.find(emp => emp.id === staff_id);
+  let staffResponse, staffJson, staff;
+  try {
+    staffResponse = await fetch(staffUrl, { method: 'GET', headers: HEADERS });
+    staffJson = await staffResponse.json();
+    staff = staffJson.data?.find(emp => emp.id === staff_id);
+    if (!staff) {
+      return res.json(createResponse(id, null, createError(400, 'Обраного майстра не знайдено.')));
+    }
+  } catch (err) {
+    console.error('❌ Staff fetch error:', err);
+    return res.json(createResponse(id, null, createError(500, 'Не вдалося отримати список майстрів.')));
+  }
 
-  // Лог всех услуг сотрудника
-  console.log('staff.services_links:', staff?.services_links);
-
-  // Выбираем нужную услугу (если в args передан service_id — ищем по нему, иначе берём первую)
+  // 2. Перевіряємо: чи майстер надає таку послугу
   let service_id = null;
   let durationFromLink = null;
-  if (staff?.services_links && staff.services_links.length > 0) {
-    if (input_service_id) {
-      // ищем услугу по переданному service_id
-      const found = staff.services_links.find(
-        link => String(link.service_id) === String(input_service_id)
-      );
-      if (found) {
-        service_id = found.service_id;
-        durationFromLink = found.length;
+  if (input_service_id) {
+    const found = staff.services_links?.find(link => String(link.service_id) === String(input_service_id));
+    if (!found) {
+      return res.json(createResponse(id, null, createError(400, 'У обраного майстра відсутня така послуга.')));
+    }
+    service_id = found.service_id;
+    durationFromLink = found.length;
+  } else if (staff?.services_links?.length > 0) {
+    service_id = staff.services_links[0].service_id;
+    durationFromLink = staff.services_links[0].length;
+  } else {
+    return res.json(createResponse(id, null, createError(400, 'У обраного майстра відсутні будь-які послуги.')));
+  }
+
+  // 3. Перевіряємо, чи вільний обраний час
+  const dateStr = datetime.split('T')[0];      // '2025-07-26'
+  const timeHHMM = datetime.slice(11, 16);     // '15:00'
+
+  let slotsUrl = `${API_BASE}/book_times/${company_id}/${staff_id}/${dateStr}`;
+  const params = new URLSearchParams();
+  if (service_id) params.append('service_ids[]', service_id);
+  if ([...params].length) slotsUrl += '?' + params.toString();
+
+  let slotsResponse, slotsJson, freeSlots, isAvailable;
+  try {
+    slotsResponse = await fetch(slotsUrl, { method: 'GET', headers: HEADERS });
+    slotsJson = await slotsResponse.json();
+    if (!slotsJson.success) {
+      return res.json(createResponse(id, null, createError(500, slotsJson.meta?.message || 'Не вдалося отримати доступний час')));
+    }
+    freeSlots = (slotsJson.data || []).map(x => {
+      if (x.datetime) {
+        return DateTime.fromISO(x.datetime, { zone: 'Europe/Kyiv' }).toFormat('HH:mm');
       }
+      return x.time;
+    });
+    isAvailable = freeSlots.includes(timeHHMM);
+    if (!isAvailable) {
+      return res.json(createResponse(id, null, createError(400, 'На обраний час у майстра немає вільних слотів.')));
     }
-    // если не нашли по input_service_id, берём первую
-    if (!service_id) {
-      service_id = staff.services_links[0].service_id;
-      durationFromLink = staff.services_links[0].length;
-    }
+  } catch (err) {
+    console.error('❌ book_times error:', err);
+    return res.json(createResponse(id, null, createError(500, 'Не вдалося перевірити доступність часу.')));
   }
 
-  if (!service_id) {
-    return res.json(createResponse(id, null, createError(400, 'No service_id found for staff member')));
-  }
-
-  // Приоритет: явно переданный seance_length > длина из services_links > дефолт
+  // 4. Готуємо фінальну тривалість сеансу
   let finalSeanceLength = seance_length;
   if (finalSeanceLength === undefined || finalSeanceLength === null) {
-    finalSeanceLength = durationFromLink || 3600;
+    finalSeanceLength = durationFromLink || 3600; // дефолт — 1 година
   }
 
+  // 5. Готуємо payload для створення запису
   const bookUrl = `${API_BASE}/records/${company_id}`;
   const payload = {
     staff_id,
@@ -214,16 +245,16 @@ export async function bookRecordTool(res, id, args) {
     comment
   };
 
-  // Для отладки выводим итоговый payload в консоль
+  // Для відлагодження
   console.log('BOOKING PAYLOAD:', payload);
 
+  // 6. POST — створення запису
   try {
     const response = await fetch(bookUrl, {
       method: 'POST',
       headers: HEADERS,
       body: JSON.stringify(payload)
     });
-
     const json = await response.json();
 
     if (!json.success) {
